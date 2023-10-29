@@ -6,6 +6,7 @@
 #include "include/cmat_conductor.h"
 #include "include/cmat_glass.h"
 #include "include/cmat_diffuse.h"
+#include "include/cmat_film.h"
 
 #include <chrono>
 #include <string>
@@ -128,6 +129,20 @@ BsdfSample Integrator::MaterialSampleAndEval(uint a_materialId, float3 wavelengt
 
       break;
     }
+    case MAT_TYPE_FILM:
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[FILM_TEXID0]);
+      const float2 texCoordT = mulRows2x4(m_materials[a_materialId].row0[0], m_materials[a_materialId].row1[0], tc);
+      const float3 alphaTex  = to_float3(m_textures[texId]->sample(texCoordT));
+      
+      const float2 alpha = float2(m_materials[a_materialId].data[FILM_ROUGH_V], m_materials[a_materialId].data[FILM_ROUGH_U]);
+      if(trEffectivelySmooth(alpha))
+        filmSmoothSampleAndEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, rands, v, n, tc, &res);
+      else
+        filmRoughSampleAndEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, rands, v, n, tc, alphaTex, &res);
+      
+      break;
+    }
     default:
       break;
   }
@@ -184,6 +199,19 @@ BsdfEval Integrator::MaterialEval(uint a_materialId, float3 wavelengths, float3 
       const float3 color       = texColor;
 
       diffuseEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, l, v, n, tc, color, &res);
+
+      break;
+    }
+    case MAT_TYPE_FILM: 
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[FILM_TEXID0]);
+      const float3 alphaTex  = to_float3(m_textures[texId]->sample(texCoordT));
+
+      const float2 alpha = float2(m_materials[a_materialId].data[FILM_ROUGH_V], m_materials[a_materialId].data[FILM_ROUGH_U]);
+      if(trEffectivelySmooth(alpha))
+        filmSmoothEval(m_materials.data() + a_materialId, wavelengths, l, v, n, tc, &res);
+      else
+        filmRoughEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, l, v, n, tc, alphaTex, &res);
 
       break;
     }

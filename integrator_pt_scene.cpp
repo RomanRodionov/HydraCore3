@@ -500,6 +500,76 @@ Material LoadDiffuseMaterial(const pugi::xml_node& materialNode, const std::vect
   return mat;
 }
 
+Material LoadThinFilmMaterial(const pugi::xml_node& materialNode, const std::vector<TextureInfo> &texturesInfo,
+                                    std::unordered_map<HydraSampler, uint32_t, HydraSamplerHash> &texCache, 
+                                    std::vector< std::shared_ptr<ICombinedImageSampler> > &textures)
+{
+  std::wstring name = materialNode.attribute(L"name").as_string();
+  Material mat = {};
+  mat.colors[FILM_COLOR]  = float4(1, 1, 1, 0);
+  mat.data[UINT_MTYPE]         = as_float(MAT_TYPE_FILM);  
+  mat.data[UINT_LIGHTID]       = as_float(uint(-1));
+
+  auto nodeBSDF = materialNode.child(L"bsdf");
+
+  float alpha_u = 0.0f;
+  float alpha_v = 0.0f;
+
+  //auto bsdf_type = nodeBSDF.attribute(L"type").as_string();
+
+  auto nodeAlpha = materialNode.child(L"alpha");
+  if(nodeAlpha != nullptr)
+  {
+    alpha_u = nodeAlpha.attribute(L"val").as_float();
+    alpha_v = alpha_u;
+
+    const auto& [sampler, texID] = LoadTextureFromNode(nodeAlpha, texturesInfo, texCache, textures);
+
+    if(texID != 0)
+      alpha_u = alpha_v = 1.0f;
+    
+    mat.row0 [0]  = sampler.row0;
+    mat.row1 [0]  = sampler.row1;
+    mat.data[FILM_TEXID0] = as_float(texID);
+  }
+  else
+  {
+    auto nodeAlphaU = materialNode.child(L"alpha_u");
+    auto nodeAlphaV = materialNode.child(L"alpha_v");
+
+    alpha_u = nodeAlphaU.attribute(L"val").as_float();
+    alpha_v = nodeAlphaV.attribute(L"val").as_float();
+  }
+  
+  auto eta_1       = materialNode.child(L"eta_1").attribute(L"val").as_float();
+  auto eta_1SpecId = GetSpectrumIdFromNode(materialNode.child(L"eta_1"));
+  auto k_1         = materialNode.child(L"k_1").attribute(L"val").as_float();
+  auto k_1SpecId   = GetSpectrumIdFromNode(materialNode.child(L"k_1"));
+
+  auto thickness_1 = materialNode.child(L"thickness_1").attribute(L"val").as_float();
+
+  auto eta_2       = materialNode.child(L"eta_2").attribute(L"val").as_float();
+  auto eta_2SpecId = GetSpectrumIdFromNode(materialNode.child(L"eta_2"));
+  auto k_2         = materialNode.child(L"k_2").attribute(L"val").as_float();
+  auto k_2SpecId   = GetSpectrumIdFromNode(materialNode.child(L"k_2"));
+  
+  mat.data[FILM_ROUGH_U]      = alpha_u;
+  mat.data[FILM_ROUGH_V]      = alpha_v; 
+  mat.data[FILM_ETA_1]        = eta_1; 
+  mat.data[FILM_K_1]          = k_1;   
+  mat.data[FILM_ETA_2]        = eta_2; 
+  mat.data[FILM_K_2]          = k_2;   
+
+  mat.data[FILM_THICKNESS_1]  = thickness_1;
+
+  mat.data[FILM_ETA_1_SPECID] = as_float(eta_1SpecId);
+  mat.data[FILM_K_1_SPECID]   = as_float(k_1SpecId);
+  mat.data[FILM_ETA_2_SPECID] = as_float(eta_2SpecId);
+  mat.data[FILM_K_2_SPECID]   = as_float(k_2SpecId);
+
+  return mat;
+}
+
 
 bool Integrator::LoadScene(const char* a_scenePath, const char* a_sncDir)
 { 
@@ -587,6 +657,7 @@ bool Integrator::LoadScene(const char* a_scenePath, const char* a_sncDir)
   static const std::wstring hydraOldMatTypeStr       {L"hydra_material"};
   static const std::wstring roughConductorMatTypeStr {L"rough_conductor"};
   static const std::wstring simpleDiffuseMatTypeStr  {L"diffuse"};
+  static const std::wstring thinFilmMatTypeStr {L"thin_film"};
 
   for(auto materialNode : scene.MaterialNodes())
   {
@@ -603,6 +674,10 @@ bool Integrator::LoadScene(const char* a_scenePath, const char* a_sncDir)
     else if(mat_type == simpleDiffuseMatTypeStr)
     {
       mat = LoadDiffuseMaterial(materialNode, texturesInfo, texCache, m_textures);
+    }
+    else if(mat_type == thinFilmMatTypeStr)
+    {
+      mat = LoadThinFilmMaterial(materialNode, texturesInfo, texCache, m_textures);
     }
 
     m_materials.push_back(mat);

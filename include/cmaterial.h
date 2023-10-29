@@ -31,6 +31,7 @@ enum MATERIAL_TYPES { MAT_TYPE_GLTF      = 1,
                       MAT_TYPE_GLASS     = 2,
                       MAT_TYPE_CONDUCTOR = 3,
                       MAT_TYPE_DIFFUSE   = 4,
+                      MAT_TYPE_FILM      = 5,
                       MAT_TYPE_LIGHT_SOURCE  = 0xEFFFFFFF };
 
 enum MATERIAL_EVENT {
@@ -122,12 +123,30 @@ static constexpr uint DIFFUSE_TEXID0            = UINT_MAIN_LAST_IND + 1;
 static constexpr uint DIFFUSE_SPECID            = UINT_MAIN_LAST_IND + 2;
 static constexpr uint DIFFUSE_CUSTOM_LAST_IND   = DIFFUSE_SPECID;
 
+// Film
+// colors
+static constexpr uint FILM_COLOR             = 0;
+static constexpr uint FILM_COLOR_LAST_IND    = FILM_COLOR;
 
+// custom
+static constexpr uint FILM_ROUGH_U           = UINT_MAIN_LAST_IND + 0;
+static constexpr uint FILM_ROUGH_V           = UINT_MAIN_LAST_IND + 1;
+static constexpr uint FILM_ETA_1             = UINT_MAIN_LAST_IND + 2;
+static constexpr uint FILM_K_1               = UINT_MAIN_LAST_IND + 3;
+static constexpr uint FILM_ETA_2             = UINT_MAIN_LAST_IND + 4;
+static constexpr uint FILM_K_2               = UINT_MAIN_LAST_IND + 5;
+static constexpr uint FILM_THICKNESS_1       = UINT_MAIN_LAST_IND + 6;
+static constexpr uint FILM_TEXID0            = UINT_MAIN_LAST_IND + 7;
+static constexpr uint FILM_ETA_1_SPECID      = UINT_MAIN_LAST_IND + 8;
+static constexpr uint FILM_K_1_SPECID        = UINT_MAIN_LAST_IND + 9;
+static constexpr uint FILM_ETA_2_SPECID      = UINT_MAIN_LAST_IND + 10;
+static constexpr uint FILM_K_2_SPECID        = UINT_MAIN_LAST_IND + 11;
+static constexpr uint FILM_CUSTOM_LAST_IND   = FILM_TEXID0;
 
 
 // The size is taken according to the largest indexes
 static constexpr uint COLOR_DATA_SIZE  = 3; //std::max(std::max(GLTF_COLOR_LAST_IND, GLASS_COLOR_LAST_IND), CONDUCTOR_COLOR_LAST_IND) + 1;
-static constexpr uint CUSTOM_DATA_SIZE = 12; // std::max(std::max(GLTF_CUSTOM_LAST_IND, GLASS_CUSTOM_LAST_IND), CONDUCTOR_CUSTOM_LAST_IND) + 1;
+static constexpr uint CUSTOM_DATA_SIZE = 16; // std::max(std::max(GLTF_CUSTOM_LAST_IND, GLASS_CUSTOM_LAST_IND), CONDUCTOR_CUSTOM_LAST_IND) + 1;
 
 struct Material
 {
@@ -528,5 +547,77 @@ static inline float3 hydraFresnelCond(float3 f0, float VdotH, float ior, float r
   return f0 + (float3(1.0f,1.0f,1.0f) - f0) * fresnelSlick(VdotH); // return bsdf * (f0 + (1 - f0) * (1 - abs(VdotH))^5)
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include <iostream>
+
+enum Polarization
+{
+  S = 0,
+  P = 1
+};
+
+static inline complex FrComplexRefl(complex cosThetaI, complex cosThetaT, complex etaI, complex etaT, Polarization polarization)
+{
+  if (polarization == S)
+  {
+    return (etaI * cosThetaI - etaT * cosThetaT) / (etaI * cosThetaI + etaT * cosThetaT);
+  }
+  else if (polarization == P)
+  {
+    return (etaT * cosThetaI - etaI * cosThetaT) / (etaT * cosThetaI + etaI * cosThetaT);
+  }
+  return 1.0f;
+}
+
+static inline complex FrComplexRefr(complex cosThetaI, complex cosThetaT, complex etaI, complex etaT, Polarization polarization)
+{
+  if (polarization == S)
+  {
+    return (2 * etaI * cosThetaI) / (etaI * cosThetaI + etaT * cosThetaT);
+  }
+  else if (polarization == P)
+  {
+    return (2 * etaI * cosThetaI) / (etaT * cosThetaI + etaI * cosThetaT);
+  }
+  return 0.f;
+}
+
+static inline complex filmPhaseDiff(complex cosTheta, complex eta, float thickness, float lambda)
+{
+  static const float pi = 3.14159;
+  return 4 * pi * eta * cosTheta * thickness / lambda;
+}
+
+// I - income medium
+// F - film layer
+// T - outcome medium
+static inline float FrFilmRefl(float cosThetaI, complex etaI, complex etaF, complex etaT, float thickness, float lambda)
+{
+  //std::cout << cosThetaI << std::endl;
+  complex sinThetaI = 1.0f - cosThetaI * cosThetaI;
+  complex sinThetaF = sinThetaI * (etaI * etaI) / (etaF * etaF);
+  complex cosThetaF = complex_sqrt(1.0f - sinThetaF);
+  complex sinThetaT = sinThetaF * (etaF * etaF) / (etaT * etaT);
+  complex cosThetaT = complex_sqrt(1.0f - sinThetaT);
+  
+  complex phaseDiff = filmPhaseDiff(cosThetaF, etaF, thickness, lambda);
+
+  float result = 0;
+  Polarization polarization[2] = {S, P};
+  for (int p = 0; p <= 1; ++p)
+  {
+    complex FrReflI   = FrComplexRefl(cosThetaI, cosThetaF, etaI, etaF, polarization[p]);
+    complex FrReflF   = FrComplexRefl(cosThetaF, cosThetaT, etaF, etaT, polarization[p]);
+
+    complex FrRefl    = FrReflF * exp(-phaseDiff.im) * complex(cos(phaseDiff.re), sin(phaseDiff.re));
+    FrRefl            = (FrReflI + FrRefl) / (1 + FrReflI * FrRefl);
+    result += complex_norm(FrRefl);
+  }
+
+  //std::cout << result / 2 << " " << lambda << " " << cosThetaI << std::endl;
+  return result / 2;
+}
 
 #endif

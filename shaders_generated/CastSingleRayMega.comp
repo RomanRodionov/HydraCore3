@@ -1,0 +1,324 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "common_generated.h"
+
+layout(binding = 0, set = 0) buffer data0 { uint out_color[]; }; //
+layout(binding = 1, set = 0) buffer dataUBO { Integrator_Generated_UBO_Data ubo; };
+
+vec4 GetEnvironmentColorAndPdf(vec3 a_dir) {
+  return ubo.m_envColor;
+}
+
+bool isOutOfScene(uint a_flags) { return (a_flags & RAY_FLAG_OUT_OF_SCENE)   != 0; }
+
+BsdfSample MaterialSampleWhitted(uint a_materialId, vec3 v, vec3 n, vec2 tc) { 
+  const uint  type       = as_uint(m_materials[a_materialId].data[UINT_MTYPE]);
+  const float3 specular  = to_float3(m_materials[a_materialId].colors[GLTF_COLOR_METAL]);
+  const float3 coat      = to_float3(m_materials[a_materialId].colors[GLTF_COLOR_COAT]);
+  const float  roughness = 1.0f - m_materials[a_materialId].data[GLTF_FLOAT_GLOSINESS];
+  float alpha            = m_materials[a_materialId].data[GLTF_FLOAT_ALPHA];
+  
+  const vec3 pefReflDir = reflect((-1.0f)*v, n);
+  const vec3 reflColor = alpha*specular + (1.0f - alpha)*coat;
+
+  //if(a_materialId == 4)
+  //{
+  //  int a = 2;
+  //}
+
+  BsdfSample res;
+  res.dir   = pefReflDir;
+  res.val   = reflColor;
+  res.pdf   = 1.0f;
+  res.flags = RAY_EVENT_S;
+  return res;
+}
+
+uint extractMatId(uint a_flags) { return (a_flags & 0x00FFFFFF); }
+
+bool isDeadRay(uint a_flags) { return (a_flags & RAY_FLAG_IS_DEAD)        != 0; }
+
+float LightPdfSelectRev(int a_lightId) { 
+  return 1.0f/float(m_lights.size()); // uniform select
+}
+
+vec3 GetLightSourceIntensity(uint a_lightId, in vec3 a_wavelengths) {
+  float3 lightColor = to_float3(m_lights[a_lightId].intensity);
+  if(!ubo.m_spectral_mode)
+    return lightColor;
+
+  const uint specId = as_uint(m_lights[a_lightId].ids.x);
+
+  if(specId < 0xFFFFFFFF)
+  {
+    lightColor = SampleSpectrum(m_spectra.data() + specId, *a_wavelengths);
+    // const uint spectralSamples = uint(sizeof(a_wavelengths->M) / sizeof(a_wavelengths->M[0])); 
+    // for(uint i = 0; i < spectralSamples; ++i)
+    //   lightColor[i] = m_spectra[specId].Sample(a_wavelengths->M[i]);
+  }
+  return lightColor;
+}
+
+BsdfEval MaterialEval(uint a_materialId, vec3 wavelengths, vec3 l, vec3 v, vec3 n, vec2 tc) {
+  // explicit strategy
+  const float2 texCoordT = mulRows2x4(m_materials[a_materialId].row0[0], m_materials[a_materialId].row1[0], tc);
+  const uint   mtype     = as_uint(m_materials[a_materialId].data[UINT_MTYPE]);
+
+  // TODO: read other parameters from texture
+  BsdfEval res;
+  {
+    res.val = vec3(0,0,0);
+    res.pdf   = 0.0f;
+  }
+
+  switch(mtype)
+  {
+    case MAT_TYPE_GLTF:
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[GLTF_UINT_TEXID0]);
+      const float3 texColor  = to_float3(m_textures[texId]->sample(texCoordT));
+      const float3 color     = to_float3(m_materials[a_materialId].colors[GLTF_COLOR_BASE])*texColor;
+      gltfEval(m_materials.data() + a_materialId, l, v, n, tc, color, &res);
+      break;
+    }
+    case MAT_TYPE_GLASS:
+    {
+      glassEval(m_materials.data() + a_materialId, l, v, n, tc, {}, &res);
+      break;
+    }
+    case MAT_TYPE_CONDUCTOR: 
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[CONDUCTOR_TEXID0]);
+      const float3 alphaTex  = to_float3(m_textures[texId]->sample(texCoordT));
+
+      const float2 alpha = float2(m_materials[a_materialId].data[CONDUCTOR_ROUGH_V], m_materials[a_materialId].data[CONDUCTOR_ROUGH_U]);
+      if(trEffectivelySmooth(alpha))
+        conductorSmoothEval(m_materials.data() + a_materialId, wavelengths, l, v, n, tc, &res);
+      else
+        conductorRoughEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, l, v, n, tc, alphaTex, &res);
+
+      break;
+    }
+    case MAT_TYPE_DIFFUSE:
+    {
+      const uint   texId       = as_uint(m_materials[a_materialId].data[DIFFUSE_TEXID0]);
+      // const float3 reflectance = to_float3(m_materials[a_materialId].colors[DIFFUSE_COLOR]); 
+      const float3 texColor    = to_float3(m_textures[texId]->sample(texCoordT));
+      const vec3 color = texColor;
+
+      diffuseEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, l, v, n, tc, color, &res);
+
+      break;
+    }
+    default:
+      break;
+  }
+
+  return res;
+}
+
+float LightEvalPDF(int a_lightId, vec3 illuminationPoint, vec3 ray_dir, const vec3 lpos, const vec3 lnorm) {
+  const uint gtype    = m_lights[a_lightId].geomType;
+  const float hitDist = length(illuminationPoint - lpos);
+  
+  float cosVal = 1.0f;
+  switch(gtype)
+  {
+    case LIGHT_GEOM_SPHERE:
+    {
+      const float  lradius = m_lights[a_lightId].size.x;
+      const float3 lcenter = to_float3(m_lights[a_lightId].pos);
+      //if (DistanceSquared(illuminationPoint, lcenter) - lradius*lradius <= 0.0f)
+      //  return 1.0f;
+      const vec3 dirToV = normalize(lpos - illuminationPoint);
+      cosVal = std::abs(dot(dirToV, lnorm));
+    }
+    break;
+
+    default:
+    cosVal  = std::max(dot(ray_dir, -1.0f*lnorm), 0.0f);
+    break;
+  };
+  
+  return PdfAtoW(m_lights[a_lightId].pdfA, hitDist, cosVal);
+}
+
+LightSample LightSampleRev(int a_lightId, vec2 rands, vec3 illiminationPoint) {
+  const uint gtype = m_lights[a_lightId].geomType;
+  switch(gtype)
+  {
+    case LIGHT_GEOM_DIRECT: return directLightSampleRev(m_lights.data() + a_lightId, rands, illiminationPoint);
+    case LIGHT_GEOM_SPHERE: return sphereLightSampleRev(m_lights.data() + a_lightId, rands);
+    default:                return areaLightSampleRev  (m_lights.data() + a_lightId, rands);
+  };
+}
+
+BsdfSample MaterialSampleAndEval(uint a_materialId, vec3 wavelengths, vec4 rands, vec3 v, vec3 n, vec2 tc, inout MisData a_misPrev, const uint a_currRayFlags) {
+  // implicit strategy
+  const float2 texCoordT = mulRows2x4(m_materials[a_materialId].row0[0], m_materials[a_materialId].row1[0], tc);
+  const uint   mtype     = as_uint(m_materials[a_materialId].data[UINT_MTYPE]);
+
+  // TODO: read other parameters from texture
+
+  BsdfSample res;
+  {
+    res.val   = vec3(0,0,0);
+    res.pdf   = 1.0f;
+    res.dir   = vec3(0,1,0);
+    res.flags = a_currRayFlags;
+  }
+
+
+  switch(mtype)
+  {
+    case MAT_TYPE_GLTF:
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[GLTF_UINT_TEXID0]);
+      const float3 texColor  = to_float3(m_textures[texId]->sample(texCoordT));
+      const float3 color     = to_float3(m_materials[a_materialId].colors[GLTF_COLOR_BASE])*texColor;
+      gltfSampleAndEval(m_materials.data() + a_materialId, rands, v, n, tc, color, &res);
+      break;
+    }
+    case MAT_TYPE_GLASS:
+    {
+      glassSampleAndEval(m_materials.data() + a_materialId, rands, v, n, tc, &res, a_misPrev);
+      break;
+    }
+    case MAT_TYPE_CONDUCTOR:
+    {
+      const uint   texId     = as_uint(m_materials[a_materialId].data[CONDUCTOR_TEXID0]);
+      const float2 texCoordT = mulRows2x4(m_materials[a_materialId].row0[0], m_materials[a_materialId].row1[0], tc);
+      const float3 alphaTex  = to_float3(m_textures[texId]->sample(texCoordT));
+      
+      const float2 alpha = float2(m_materials[a_materialId].data[CONDUCTOR_ROUGH_V], m_materials[a_materialId].data[CONDUCTOR_ROUGH_U]);
+      if(trEffectivelySmooth(alpha))
+        conductorSmoothSampleAndEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, rands, v, n, tc, &res);
+      else
+        conductorRoughSampleAndEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, rands, v, n, tc, alphaTex, &res);
+      
+      break;
+    }
+    case MAT_TYPE_DIFFUSE:
+    {
+      const uint   texId       = as_uint(m_materials[a_materialId].data[DIFFUSE_TEXID0]);
+      // const float3 reflectance = to_float3(m_materials[a_materialId].colors[DIFFUSE_COLOR]); 
+      const float3 texColor    = to_float3(m_textures[texId]->sample(texCoordT));
+      const vec3 color = texColor;
+
+      diffuseSampleAndEval(m_materials.data() + a_materialId, m_spectra.data(), wavelengths, rands, v, n, tc, color, &res);
+
+      break;
+    }
+    default:
+      break;
+  }
+
+  return res;
+}
+
+bool hasNonSpecular(uint a_flags) { return (a_flags & RAY_FLAG_HAS_NON_SPEC)   != 0; }
+
+uint packMatId(uint a_flags, uint a_matId) { return (a_flags & 0xFF000000) | (a_matId & 0x00FFFFFF); }
+
+uint RemapMaterialId(uint a_mId, int a_instId) {
+  const int remapListId  = m_remapInst[a_instId];
+  if(remapListId == -1)
+    return a_mId;
+
+  const int r_offset     = m_allRemapListsOffsets[remapListId];
+  const int r_size       = m_allRemapListsOffsets[remapListId+1] - r_offset;
+  const ivec2 offsAndSize = ivec2(r_offset,r_size);
+  
+  uint res = a_mId;
+  
+  // for (int i = 0; i < offsAndSize.y; i++) // linear search version
+  // {
+  //   int idRemapFrom = m_allRemapLists[offsAndSize.x + i * 2 + 0];
+  //   int idRemapTo   = m_allRemapLists[offsAndSize.x + i * 2 + 1];
+  //   if (idRemapFrom == a_mId) {
+  //     res = idRemapTo;
+  //     break;
+  //   }
+  // }
+
+  int low  = 0;
+  int high = offsAndSize.y - 1;              // binary search version
+  
+  while (low <= high)
+  {
+    const int mid         = low + ((high - low) / 2);
+    const int idRemapFrom = m_allRemapLists[offsAndSize.x + mid * 2 + 0];
+    if (uint(idRemapFrom) >= a_mId)
+      high = mid - 1;
+    else //if(a[mid]<i)
+      low = mid + 1;
+  }
+
+  if (high+1 < offsAndSize.y)
+  {
+    const int idRemapFrom = m_allRemapLists[offsAndSize.x + (high + 1) * 2 + 0];
+    const int idRemapTo   = m_allRemapLists[offsAndSize.x + (high + 1) * 2 + 1];
+    res                   = (uint(idRemapFrom) == a_mId) ? uint(idRemapTo) : a_mId;
+  }
+
+  return res;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout( push_constant ) uniform kernelArgs
+{
+  uint iNumElementsX; 
+  uint iNumElementsY; 
+  uint iNumElementsZ; 
+  uint tFlagsMask;    
+} kgenArgs;
+
+///////////////////////////////////////////////////////////////// subkernels here
+bool kernel_RayTrace(uint tid, in vec4 rayPosAndNear, inout vec4 rayDirAndFar, inout Lite_Hit out_hit, inout vec2 out_bars) 
+{
+  
+  const vec4 rayPos = rayPosAndNear;
+  const vec4 rayDir = rayDirAndFar ;
+
+  CRT_Hit hit = m_pAccelStruct->RayQuery_NearestHit(rayPos, rayDir);
+  
+  Lite_Hit res;
+  res.primId = int(hit.primId);
+  res.instId = int(hit.instId);
+  res.geomId = int(hit.geomId);
+  res.t      = hit.t;
+
+  vec2 baricentrics = vec2(hit.coords[0],hit.coords[1]);
+ 
+  out_hit  = res;
+  out_bars = baricentrics;
+  return (res.primId != -1);
+
+}
+
+///////////////////////////////////////////////////////////////// subkernels here
+
+void main()
+{
+  ///////////////////////////////////////////////////////////////// prolog
+  const uint tid = uint(gl_GlobalInvocationID[0]); 
+  ///////////////////////////////////////////////////////////////// prolog
+
+  
+  vec4 rayPosAndNear,  rayDirAndFar;
+  kernel_InitEyeRay(tid, m_packedXY.data(), &rayPosAndNear, &rayDirAndFar);
+
+  Lite_Hit hit; 
+  vec2 baricentrics; 
+  if(!kernel_RayTrace(tid, rayPosAndNear, rayDirAndFar, hit, baricentrics))
+    return;
+  
+  kernel_GetRayColor(tid, &hit, m_packedXY.data(), out_color);
+
+}
+

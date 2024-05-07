@@ -53,17 +53,25 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
         complex FrRefl = FrComplexRefl(cosThetaI, cosThetaF, a_ior[0], a_ior[1], PolarizationP);
         complex FrRefr = FrComplexRefr(cosThetaI, cosThetaF, a_ior[0], a_ior[1], PolarizationP);
 
-        CMatrix2x2 D_P = {1.f, FrRefl, FrRefl, 1.f};
+        CMatrix2x2 D_P;
+        D_P.c00 = 1.f;
+        D_P.c01 = FrRefl;
+        D_P.c10 = FrRefl;
+        D_P.c11 = 1.f;
         complex coeff_P = FrRefr;
 
         // S polarization
         FrRefl = FrComplexRefl(cosThetaI, cosThetaF, a_ior[0], a_ior[1], PolarizationS);
         FrRefr = FrComplexRefr(cosThetaI, cosThetaF, a_ior[0], a_ior[1], PolarizationS);
 
-        CMatrix2x2 D_S = {1.f, FrRefl, FrRefl, 1.f};
+        CMatrix2x2 D_S;
+        D_S.c00 = 1.f;
+        D_S.c01 = FrRefl;
+        D_S.c10 = FrRefl;
+        D_S.c11 = 1.f;
         complex coeff_S = FrRefr;
 
-        complex phaseDiff = filmPhaseDiff(cosThetaF, a_ior[1], thickness[0], a_wavelengths[k]) / 2.f;
+        complex phaseDiff = filmPhaseDiff(cosThetaF, a_ior[1], thickness[0], a_wavelengths[k]) * complex(0.5f);
         complex phaseExp = exp(-phaseDiff.im) * complex(cos(phaseDiff.re), sin(phaseDiff.re));
         CMatrix2x2 P = getPropMatrix(phaseExp);
         complex prop_coeff = getPropCoeff(phaseExp);
@@ -80,7 +88,10 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
           FrRefl = FrComplexRefl(cosThetaF, cosThetaT, a_ior[i], a_ior[i + 1], PolarizationP);
           FrRefr = FrComplexRefr(cosThetaF, cosThetaT, a_ior[i], a_ior[i + 1], PolarizationP);
       
-          D_P = {1.f, FrRefl, FrRefl, 1.f};
+          D_P.c00 = 1.f;
+          D_P.c01 = FrRefl;
+          D_P.c10 = FrRefl;
+          D_P.c11 = 1.f;
           transferMatrix[0] = multCMatrix2x2(transferMatrix[0], D_P);
           coeff[0] = coeff[0] * FrRefr;
 
@@ -88,13 +99,16 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
           FrRefl = FrComplexRefl(cosThetaF, cosThetaT, a_ior[i], a_ior[i + 1], PolarizationS);
           FrRefr = FrComplexRefr(cosThetaF, cosThetaT, a_ior[i], a_ior[i + 1], PolarizationS);
       
-          D_S = {1.f, FrRefl, FrRefl, 1.f};
+          D_S.c00 = 1.f;
+          D_S.c01 = FrRefl;
+          D_S.c10 = FrRefl;
+          D_S.c11 = 1.f;
           transferMatrix[1] = multCMatrix2x2(transferMatrix[1], D_S);
           coeff[1] = coeff[1] * FrRefr;
 
           if (i < layers - 1)
           {
-            phaseDiff = filmPhaseDiff(cosThetaT, a_ior[i + 1], thickness[i], a_wavelengths[k]) / 2.f;
+            phaseDiff = filmPhaseDiff(cosThetaT, a_ior[i + 1], thickness[i], a_wavelengths[k]) * complex(0.5f);
             phaseExp = exp(-phaseDiff.im) * complex(cos(phaseDiff.re), sin(phaseDiff.re));
             P = getPropMatrix(phaseExp);
             prop_coeff = getPropCoeff(phaseExp);
@@ -126,17 +140,25 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
         complex FrRefl = FrComplexRefl(cosThetaI, cosThetaF, a_ior[layers], a_ior[layers - 1], PolarizationP);
         complex FrRefr = FrComplexRefr(cosThetaI, cosThetaF, a_ior[layers], a_ior[layers - 1], PolarizationP);
 
-        CMatrix2x2 D_P = {1.f, FrRefl, FrRefl, 1.f};
+        CMatrix2x2 D_P;
+        D_P.c00 = 1.f;
+        D_P.c01 = FrRefl;
+        D_P.c10 = FrRefl;
+        D_P.c11 = 1.f;
         complex coeff_P = FrRefr;
 
         // S polarization
         FrRefl = FrComplexRefl(cosThetaI, cosThetaF, a_ior[layers], a_ior[layers - 1], PolarizationS);
         FrRefr = FrComplexRefr(cosThetaI, cosThetaF, a_ior[layers], a_ior[layers - 1], PolarizationS);
 
-        CMatrix2x2 D_S = {1.f, FrRefl, FrRefl, 1.f};
+        CMatrix2x2 D_S;
+        D_S.c00 = 1.f;
+        D_S.c01 = FrRefl;
+        D_S.c10 = FrRefl;
+        D_S.c11 = 1.f;
         complex coeff_S = FrRefr;
 
-        complex phaseDiff = filmPhaseDiff(cosThetaF, a_ior[layers - 1], thickness[layers - 2], a_wavelengths[k]) / 2.f;
+        complex phaseDiff = filmPhaseDiff(cosThetaF, a_ior[layers - 1], thickness[layers - 2], a_wavelengths[k]) * complex(0.5f);
         complex phaseExp = exp(-phaseDiff.im) * complex(cos(phaseDiff.re), sin(phaseDiff.re));
         CMatrix2x2 P = getPropMatrix(phaseExp);
         complex prop_coeff = getPropCoeff(phaseExp);
@@ -153,7 +175,10 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
           FrRefl = FrComplexRefl(cosThetaF, cosThetaT, a_ior[layers - i], a_ior[layers - i - 1], PolarizationP);
           FrRefr = FrComplexRefr(cosThetaF, cosThetaT, a_ior[layers - i], a_ior[layers - i - 1], PolarizationP);
       
-          D_P = {1.f, FrRefl, FrRefl, 1.f};
+          D_P.c00 = 1.f;
+          D_P.c01 = FrRefl;
+          D_P.c10 = FrRefl;
+          D_P.c11 = 1.f;
           transferMatrix[0] = multCMatrix2x2(transferMatrix[0], D_P);
           coeff[0] = coeff[0] * FrRefr;
 
@@ -161,13 +186,16 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
           FrRefl = FrComplexRefl(cosThetaF, cosThetaT, a_ior[layers - i], a_ior[layers - i - 1], PolarizationS);
           FrRefr = FrComplexRefr(cosThetaF, cosThetaT, a_ior[layers - i], a_ior[layers - i - 1], PolarizationS);
       
-          D_S = {1.f, FrRefl, FrRefl, 1.f};
+          D_S.c00 = 1.f;
+          D_S.c01 = FrRefl;
+          D_S.c10 = FrRefl;
+          D_S.c11 = 1.f;
           transferMatrix[1] = multCMatrix2x2(transferMatrix[1], D_S);
           coeff[1] = coeff[1] * FrRefr;
 
           if (i < layers - 1)
           {
-            phaseDiff = filmPhaseDiff(cosThetaT, a_ior[layers - i - 1], thickness[layers - i - 2], a_wavelengths[k]) / 2.f;
+            phaseDiff = filmPhaseDiff(cosThetaT, a_ior[layers - i - 1], thickness[layers - i - 2], a_wavelengths[k]) * complex(0.5f);
             phaseExp = exp(-phaseDiff.im) * complex(cos(phaseDiff.re), sin(phaseDiff.re));
             P = getPropMatrix(phaseExp);
             prop_coeff = getPropCoeff(phaseExp);

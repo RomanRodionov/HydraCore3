@@ -427,23 +427,24 @@ public:
   static constexpr uint32_t KSPEC_MAT_TYPE_CONDUCTOR  = 3;
   static constexpr uint32_t KSPEC_MAT_TYPE_DIFFUSE    = 4;
   static constexpr uint32_t KSPEC_MAT_TYPE_PLASTIC    = 5;
-  static constexpr uint32_t KSPEC_FILMS_STACK_SIZE    = 6;
-  static constexpr uint32_t KSPEC_MAT_TYPE_THIN_FILM  = 7;
+  static constexpr uint32_t KSPEC_MAT_TYPE_THIN_FILM  = 6;
  
-  static constexpr uint32_t KSPEC_SPECTRAL_RENDERING  = 8;
-  static constexpr uint32_t KSPEC_MAT_TYPE_BLEND      = 9;
-  static constexpr uint32_t KSPEC_BLEND_STACK_SIZE    = 10;
-  static constexpr uint32_t KSPEC_BUMP_MAPPING        = 11;
-  static constexpr uint32_t KSPEC_MAT_TYPE_DIELECTRIC = 12;
-  static constexpr uint32_t KSPEC_MAT_FOUR_TEXTURES   = 13;
+  static constexpr uint32_t KSPEC_SPECTRAL_RENDERING  = 7;
+  static constexpr uint32_t KSPEC_MAT_TYPE_BLEND      = 8;
+  static constexpr uint32_t KSPEC_BLEND_STACK_SIZE    = 9;
+  static constexpr uint32_t KSPEC_BUMP_MAPPING        = 10;
+  static constexpr uint32_t KSPEC_MAT_TYPE_DIELECTRIC = 11;
+  static constexpr uint32_t KSPEC_MAT_FOUR_TEXTURES   = 12;
   
-  static constexpr uint32_t KSPEC_LIGHT_IES           = 14;
-  static constexpr uint32_t KSPEC_LIGHT_ENV           = 15;
+  static constexpr uint32_t KSPEC_LIGHT_IES           = 13;
+  static constexpr uint32_t KSPEC_LIGHT_ENV           = 14;
 
-  static constexpr uint32_t KSPEC_MOTION_BLUR         = 16;  
-  static constexpr uint32_t KSPEC_OPTIC_SIM           = 17;
-  static constexpr uint32_t KSPEC_LIGHT_PROJECTIVE    = 18;
-  static constexpr uint32_t KSPEC_SPD_TEX             = 19;
+  static constexpr uint32_t KSPEC_MOTION_BLUR         = 15;  
+  static constexpr uint32_t KSPEC_OPTIC_SIM           = 16;
+  static constexpr uint32_t KSPEC_LIGHT_PROJECTIVE    = 17;
+  static constexpr uint32_t KSPEC_SPD_TEX             = 18;
+
+  static constexpr uint32_t KSPEC_FILMS_STACK_SIZE    = 19;
 
   static constexpr uint32_t TOTAL_FEATURES_NUM        = 20; // (!!!) DON'T rename it to KSPEC_TOTAL_FEATURES_NUM.
 

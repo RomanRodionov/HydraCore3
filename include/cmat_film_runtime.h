@@ -22,6 +22,7 @@ static inline void filmSmoothSampleAndEval(const Material* a_materials,
         const float* thickness,
         uint layers, const float4 a_wavelengths, const float _extIOR, float4 rands, float3 v, float3 n, float2 tc, BsdfSample* pRes)
 {
+
   const float extIOR = a_materials[0].data[FILM_ETA_EXT];
   
   if ((pRes->flags & RAY_FLAG_HAS_INV_NORMAL) != 0) // inside of object

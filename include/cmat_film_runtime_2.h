@@ -416,9 +416,10 @@ static inline void filmRoughSampleAndEval(const Material* a_materials,
     {
       return;
     }
-    float G = microfacet_G(wi, wo, wm, alpha);
-    pRes->pdf = wm_pdf.w / (4.0f * std::abs(dot(wo, wm)));
-    pRes->val = wm_pdf.w / (4.0f * wo.z * wm.z) * smith_g1(wo, wm, alpha) * R / std::max(wo.z, EPSILON_32);
+    const float cos_theta_i = std::max(wi.z, EPSILON_32);
+    const float cos_theta_o = std::max(wo.z, EPSILON_32);
+    pRes->pdf = trPDF(wi, wm, alpha) / (4.0f * std::abs(dot(wi, wm)));
+    pRes->val = trD(wm, alpha) * microfacet_G(wi, wo, wm, alpha) * R / (4.0f * cos_theta_i * cos_theta_o);
     if (reversed)
     {
       wo = -1 * wo;
@@ -436,9 +437,10 @@ static inline void filmRoughSampleAndEval(const Material* a_materials,
       {
         return;
       }
-      float D = eval_microfacet(wm, alpha, 1);
-      pRes->pdf = wm_pdf.w / (4.0f * std::abs(dot(wo, wm))) * sum(R) / (sum(R) + sum(T));
-      pRes->val = wm_pdf.w / (4.0f * wo.z * wm.z) * smith_g1(wo, wm, alpha) * R / std::max(wo.z, EPSILON_32);
+      const float cos_theta_i = std::max(wi.z, EPSILON_32);
+      const float cos_theta_o = std::max(wo.z, EPSILON_32);
+      pRes->pdf = trPDF(wi, wm, alpha) / (4.0f * std::abs(dot(wi, wm))) * sum(R) / (sum(R) + sum(T));
+      pRes->val = trD(wm, alpha) * microfacet_G(wi, wo, wm, alpha) * R / (4.0f * cos_theta_i * cos_theta_o);
       if (reversed)
       {
         wo = -1 * wo;
@@ -463,11 +465,20 @@ static inline void filmRoughSampleAndEval(const Material* a_materials,
       {
         return;
       }
-      float G = microfacet_G(wi, wo, wm, alpha);
-      float denom = sqr(dot(wo, wm) + dot(wi, wm) / eta_it);
-      float dwm_dwi = fabs(dot(wo, wm)) / denom;
-      pRes->val = wm_pdf.w * G * T * fabs(dot(wi, wm) * dot(wo, wm) / (wi.z * wo.z * denom));
-      pRes->pdf = wm_pdf.w * dwm_dwi * sum(T) / (sum(R) + sum(T));
+      const float cos_theta_i = std::max(wi.z, EPSILON_32);
+      const float cos_theta_o = std::max(wo.z, EPSILON_32);
+      if (fabs(eta_it - 1.f) <= 1e-6f)
+      {
+        pRes->pdf = trPDF(wi, wm, alpha) / (4.0f * std::abs(dot(wi, wm))) * sum(T) / (sum(R) + sum(T));
+        pRes->val = trD(wm, alpha) * microfacet_G(wi, wo, wm, alpha) * T / (4.0f * -cos_theta_i * cos_theta_o);
+      }
+      else
+      {
+        float denom = sqr(dot(wo, wm) + dot(wi, wm) / eta_it);
+        float dwm_dwi = fabs(dot(wo, wm)) / denom;
+        pRes->pdf = trPDF(wi, wm, alpha) * dwm_dwi * sum(T) / (sum(R) + sum(T));
+        pRes->val = trD(wm, alpha) * microfacet_G(wi, wo, wm, alpha) * T * fabs(dot(wi, wm) * dot(wo, wm) / (cos_theta_i * cos_theta_o * denom));
+      }
       if (reversed)
       {
         wo = -1 * wo;
@@ -610,6 +621,6 @@ static void filmRoughEval(const Material* a_materials,
 
   float D = eval_microfacet(wm, alpha, 1);
   float G = microfacet_G(wi, wo, wm, alpha);
-  pRes->val = D * G * R / (4.0f * cos_theta_i * cos_theta_o);
-  pRes->pdf = D * smith_g1(wi, wm, alpha) / (4.0f * cos_theta_i);
+  pRes->pdf = trPDF(wi, wm, alpha) / (4.0f * std::abs(dot(wi, wm)));
+  pRes->val = trD(wm, alpha) * microfacet_G(wi, wo, wm, alpha) * R / (4.0f * cos_theta_i * cos_theta_o);
 }
